@@ -1,0 +1,283 @@
+:root {
+  color-scheme: dark light;
+  font-family: "Segoe UI", Roboto, sans-serif;
+  background-color: #f7f9fc;
+  color: #1f2933;
+}
+
+body {
+  margin: 0;
+  background: linear-gradient(180deg, #0f172a 0%, #1e293b 60%, #f7f9fc 100%);
+  min-height: 100vh;
+}
+
+main {
+  padding: 1.5rem;
+}
+
+.app-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1.5rem 1.5rem 0;
+  color: #f8fafc;
+}
+
+.app-header h1 {
+  margin: 0;
+  font-size: 1.75rem;
+}
+
+.global-controls button {
+  margin-left: 0.5rem;
+}
+
+.instruments {
+  display: grid;
+  gap: 1.5rem;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+}
+
+.instrument-card {
+  background-color: rgba(255, 255, 255, 0.95);
+  border-radius: 16px;
+  padding: 1rem;
+  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.3);
+  display: flex;
+  flex-direction: column;
+}
+
+.instrument-card header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.75rem;
+}
+
+.instrument-card h2 {
+  margin: 0;
+  font-size: 1.25rem;
+}
+
+.status-indicator {
+  padding: 0.25rem 0.75rem;
+  border-radius: 999px;
+  font-weight: 600;
+  color: #0f172a;
+  background-color: #cbd5f5;
+}
+
+.status-indicator[data-running="true"] {
+  background-color: #bbf7d0;
+  color: #14532d;
+}
+
+.status-indicator[data-running="false"] {
+  background-color: #fecaca;
+  color: #7f1d1d;
+}
+
+.tab-bar {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.tab-button {
+  flex: 1;
+  padding: 0.5rem 0.75rem;
+  border-radius: 999px;
+  border: none;
+  background-color: #e2e8f0;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.tab-button.active {
+  background-color: #3b82f6;
+  color: #fff;
+}
+
+.tab-content {
+  display: none;
+}
+
+.tab-content.active {
+  display: block;
+}
+
+.config-form .field-group,
+.config-form fieldset {
+  margin-bottom: 1rem;
+}
+
+.config-form fieldset {
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 0.75rem;
+}
+
+.config-form legend {
+  font-weight: 600;
+  padding: 0 0.25rem;
+}
+
+.tp-row,
+.stop-loss-row,
+.dca-fields {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 0.5rem;
+}
+
+.tp-row strong {
+  width: 40px;
+}
+
+.config-form input[type="number"] {
+  width: 110px;
+  padding: 0.35rem 0.5rem;
+  border-radius: 8px;
+  border: 1px solid #cbd5f5;
+  background-color: #f8fafc;
+}
+
+.add-stop,
+.remove-stop {
+  padding: 0.35rem 0.75rem;
+  border-radius: 8px;
+  border: none;
+  cursor: pointer;
+}
+
+.add-stop {
+  background-color: #e0f2fe;
+  color: #0f172a;
+}
+
+.remove-stop {
+  background-color: #fecaca;
+  color: #7f1d1d;
+}
+
+.checkbox {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.form-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+button.primary,
+button.secondary,
+button.danger {
+  padding: 0.5rem 1rem;
+  border-radius: 999px;
+  border: none;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+button.primary {
+  background-color: #2563eb;
+  color: #fff;
+}
+
+button.secondary {
+  background-color: #e2e8f0;
+  color: #0f172a;
+}
+
+button.danger {
+  background-color: #ef4444;
+  color: #fff;
+}
+
+.status-panel ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.status-panel li {
+  margin-bottom: 0.25rem;
+}
+
+.orders-list table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 1rem;
+}
+
+.orders-list th,
+.orders-list td {
+  border-bottom: 1px solid #e2e8f0;
+  text-align: left;
+  padding: 0.5rem;
+}
+
+.log-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.log-list ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.log-list li {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.35rem 0.25rem;
+  border-bottom: 1px dashed #cbd5f5;
+}
+
+.log-list time {
+  font-size: 0.75rem;
+  color: #475569;
+}
+
+.level {
+  font-size: 0.75rem;
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  font-weight: 600;
+}
+
+.level-info {
+  background-color: #dbeafe;
+  color: #1e40af;
+}
+
+.level-warning {
+  background-color: #fef3c7;
+  color: #92400e;
+}
+
+.level-error {
+  background-color: #fee2e2;
+  color: #991b1b;
+}
+
+@media (max-width: 640px) {
+  .tp-row,
+  .stop-loss-row,
+  .dca-fields {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .config-form input[type="number"] {
+    width: 100%;
+  }
+}
