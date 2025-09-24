@@ -1,0 +1,57 @@
+#main-layout {
+    padding: 1 2;
+    gap: 1;
+}
+
+#control-bar {
+    gap: 1;
+}
+
+#instrument-scroll {
+    height: 1fr;
+    border: tall $surface;
+}
+
+.instrument-title {
+    text-style: bold;
+    margin: 1 0;
+}
+
+.settings-grid {
+    grid-size: 2;
+    grid-gutter: 1 0;
+    margin-bottom: 1;
+}
+
+.settings-message {
+    height: auto;
+}
+
+.settings-message.error {
+    color: $error;
+}
+
+.settings-message.success {
+    color: $success;
+}
+
+.status-label {
+    text-style: bold;
+}
+
+.status-pane {
+    gap: 1;
+}
+
+TextLog {
+    height: 20;
+}
+
+#instrument-container {
+    gap: 2;
+    padding: 1;
+}
+
+.client-status {
+    color: $success;
+}
