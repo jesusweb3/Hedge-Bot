@@ -1,3 +1,11 @@
+# src/hedgebot/ui/instrument_widget.py
+"""
+Виджет инструмента с вкладками для управления торговыми настройками.
+Содержит четыре вкладки: Настройки, Статус, Ордеры и Лог.
+Обрабатывает пользовательский ввод, отображает состояние торговли,
+показывает активные ордера и ведет журнал событий.
+"""
+
 from __future__ import annotations
 
 from typing import List
@@ -13,7 +21,7 @@ from textual.widgets import (
     Static,
     TabPane,
     TabbedContent,
-    TextLog,
+    RichLog,
 )
 
 from ..config import InstrumentSettings, RefillConfig, StopLossLevel, TakeProfitLevel
@@ -69,7 +77,7 @@ class InstrumentWidget(Vertical):
         self.orders_table.add_columns(
             "ID", "Тип", "Сторона", "Позиция", "Кол-во", "Цена", "Триггер", "RO", "Статус", "Обновлено"
         )
-        self.log_view = TextLog(id=f"{instrument_id}-log", highlight=True, wrap=False)
+        self.log_view = RichLog(id=f"{instrument_id}-log", highlight=True, markup=True)
         self.log_view.max_lines = 500
         self._update_button_states(InstrumentStatus.CONFIGURED)
 
@@ -77,13 +85,13 @@ class InstrumentWidget(Vertical):
         yield self.title_label
         with TabbedContent(id=f"tabs-{self.instrument_id}"):
             with TabPane("Настройки", id=f"{self.instrument_id}-settings-tab"):
-                yield self._compose_settings_tab()
+                yield from self._compose_settings_tab()
             with TabPane("Статус", id=f"{self.instrument_id}-status-tab"):
-                yield self._compose_status_tab()
+                yield from self._compose_status_tab()
             with TabPane("Ордеры", id=f"{self.instrument_id}-orders-tab"):
-                yield self._compose_orders_tab()
+                yield from self._compose_orders_tab()
             with TabPane("Лог", id=f"{self.instrument_id}-log-tab"):
-                yield self._compose_log_tab()
+                yield from self._compose_log_tab()
 
     # ------------------------------------------------------------------
     # Компоненты вкладок
@@ -138,30 +146,27 @@ class InstrumentWidget(Vertical):
     # ------------------------------------------------------------------
     # События
     # ------------------------------------------------------------------
-    async def on_button_pressed(self, event: Button.Pressed) -> None:
+    def on_button_pressed(self, event: Button.Pressed) -> None:
         button_id = event.button.id or ""
         if button_id.endswith("-start"):
-            await self.post_message(InstrumentCommandMessage(InstrumentCommand(self.instrument_id, "start")))
+            self.post_message(InstrumentCommandMessage(InstrumentCommand(self.instrument_id, "start")))
         elif button_id.endswith("-stop"):
-            await self.post_message(InstrumentCommandMessage(InstrumentCommand(self.instrument_id, "stop")))
+            self.post_message(InstrumentCommandMessage(InstrumentCommand(self.instrument_id, "stop")))
         elif button_id.endswith("-close"):
-            await self.post_message(InstrumentCommandMessage(InstrumentCommand(self.instrument_id, "close")))
+            self.post_message(InstrumentCommandMessage(InstrumentCommand(self.instrument_id, "close")))
         elif button_id.endswith("-remove"):
-            await self.post_message(InstrumentCommandMessage(InstrumentCommand(self.instrument_id, "remove")))
+            self.post_message(InstrumentCommandMessage(InstrumentCommand(self.instrument_id, "remove")))
         elif button_id.endswith("-save"):
-            await self._submit_settings()
-
-    async def _submit_settings(self) -> None:
-        try:
-            settings = self._collect_settings_from_form()
-            await self.post_message(InstrumentCommandMessage(InstrumentCommand(self.instrument_id, "update", settings)))
-            self.settings = settings.clone()
-            self.title_label.update(f"Инструмент {self.settings.symbol}")
-            self.settings_message.set_classes("settings-message success")
-            self.settings_message.update("Настройки сохранены")
-        except Exception as exc:  # pylint: disable=broad-except
-            self.settings_message.set_classes("settings-message error")
-            self.settings_message.update(f"Ошибка: {exc}")
+            try:
+                settings = self._collect_settings_from_form()
+                self.post_message(InstrumentCommandMessage(InstrumentCommand(self.instrument_id, "update", settings)))
+                self.settings = settings.clone()
+                self.title_label.update(f"Инструмент {self.settings.symbol}")
+                self.settings_message.set_classes("settings-message success")
+                self.settings_message.update("Настройки сохранены")
+            except Exception as exc:  # pylint: disable=broad-except
+                self.settings_message.set_classes("settings-message error")
+                self.settings_message.update(f"Ошибка: {exc}")
 
     def _collect_settings_from_form(self) -> InstrumentSettings:
         symbol = self.symbol_input.value.strip().upper()
@@ -192,7 +197,8 @@ class InstrumentWidget(Vertical):
         settings.validate()
         return settings
 
-    def _parse_stop_levels(self, value: str) -> List[StopLossLevel]:
+    @staticmethod
+    def _parse_stop_levels(value: str) -> List[StopLossLevel]:
         parts = [p.strip() for p in (value or "").split(",") if p.strip()]
         levels: List[StopLossLevel] = []
         for part in parts:
@@ -202,18 +208,18 @@ class InstrumentWidget(Vertical):
             levels.append(StopLossLevel(offset_percent=float(offset_str), quantity_percent=float(qty_str)))
         return levels
 
-    async def on_instrument_event_message(self, event: InstrumentEventMessage) -> None:
+    def on_instrument_event_message(self, event: InstrumentEventMessage) -> None:
         if event.instrument_id != self.instrument_id:
             return
         payload = event.event
         if isinstance(payload, StatusEvent):
-            await self._handle_status_event(payload)
+            self._handle_status_event(payload)
         elif isinstance(payload, LogEvent):
             self._handle_log_event(payload)
         elif isinstance(payload, OrdersEvent):
             self._handle_orders_event(payload)
 
-    async def _handle_status_event(self, event: StatusEvent) -> None:
+    def _handle_status_event(self, event: StatusEvent) -> None:
         self.status_label.update(f"Статус: {event.status.value.upper()}")
         details = event.details or ""
         self.status_details.update(details)
@@ -221,20 +227,22 @@ class InstrumentWidget(Vertical):
 
     def _handle_log_event(self, event: LogEvent) -> None:
         timestamp = event.timestamp.strftime("%H:%M:%S")
-        style = {
+        style_map = {
             "info": "green",
             "warning": "yellow",
             "error": "red",
             "debug": "dim",
-        }.get(event.level, "white")
-        self.log_view.write(f"[{timestamp}] {event.message}", style=style)
+        }
+        style = style_map.get(event.level, "white")
+        self.log_view.write(f"[{style}][{timestamp}] {event.message}[/{style}]")
 
     def _handle_orders_event(self, event: OrdersEvent) -> None:
-        self.orders_table.clear(rows=True)
+        self.orders_table.clear()
         for order in event.orders:
             self.orders_table.add_row(*self._order_to_row(order))
 
-    def _order_to_row(self, order: ManagedOrder) -> List[str]:
+    @staticmethod
+    def _order_to_row(order: ManagedOrder) -> List[str]:
         return [
             order.order_id[-12:],
             order.kind.value,

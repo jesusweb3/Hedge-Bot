@@ -1,8 +1,16 @@
+# src/hedgebot/engine.py
+"""
+Торговый движок для управления одним инструментом.
+Реализует полную логику хедж-торговли: размещение входных ордеров, управление защитными ордерами,
+обработку доливок и мониторинг состояний. Работает асинхронно, отправляя события через очередь.
+Поддерживает автоматическое завершение сделок при достижении целевых уровней.
+"""
+
 from __future__ import annotations
 
 import asyncio
 from contextlib import suppress
-from datetime import datetime
+from datetime import datetime, UTC
 from decimal import Decimal, ROUND_DOWN, ROUND_HALF_UP
 from typing import Dict, Optional
 
@@ -17,6 +25,7 @@ class InstrumentEngine:
     """Управляет логикой торговли по одному инструменту."""
 
     def __init__(self, settings: InstrumentSettings, client: BybitClient) -> None:
+        """Инициализирует торговый движок с настройками и клиентом API."""
         self.settings = settings.clone()
         self.client = client
         self.status: InstrumentStatus = InstrumentStatus.CONFIGURED
@@ -35,6 +44,7 @@ class InstrumentEngine:
     # Публичный API
     # ------------------------------------------------------------------
     async def update_settings(self, settings: InstrumentSettings) -> None:
+        """Обновляет настройки инструмента (только в неактивном состоянии)."""
         if self.status in {InstrumentStatus.WAITING_ENTRY, InstrumentStatus.ACTIVE}:
             raise RuntimeError("Нельзя менять настройки во время работы")
         self.settings = settings.clone()
@@ -42,6 +52,7 @@ class InstrumentEngine:
         await self._emit_status(InstrumentStatus.CONFIGURED, "Настройки обновлены")
 
     async def start(self) -> None:
+        """Запускает торговлю: проверяет символ, включает хедж-режим и размещает входные ордера."""
         if self.status in {InstrumentStatus.WAITING_ENTRY, InstrumentStatus.ACTIVE}:
             raise RuntimeError("Инструмент уже запущен")
         self.settings.validate()
@@ -67,6 +78,7 @@ class InstrumentEngine:
         self._poll_task = asyncio.create_task(self._poll_loop())
 
     async def stop(self) -> None:
+        """Останавливает торговлю и отменяет все ордера."""
         self._stop_event.set()
         if self._poll_task:
             self._poll_task.cancel()
@@ -78,6 +90,7 @@ class InstrumentEngine:
         await self._emit_status(InstrumentStatus.STOPPED, "Остановлено пользователем")
 
     async def close_all(self) -> None:
+        """Полностью закрывает все позиции и ордера."""
         self._stop_event.set()
         if self._poll_task:
             self._poll_task.cancel()
@@ -94,6 +107,7 @@ class InstrumentEngine:
     # Основной цикл мониторинга
     # ------------------------------------------------------------------
     async def _poll_loop(self) -> None:
+        """Основной цикл мониторинга состояний ордеров."""
         try:
             while not self._stop_event.is_set():
                 await self._poll_once()
@@ -104,6 +118,7 @@ class InstrumentEngine:
             await self._handle_error(exc)
 
     async def _poll_once(self) -> None:
+        """Выполняет один цикл проверки состояний ордеров."""
         symbol = self.settings.symbol
         open_orders = await self.client.get_open_orders(symbol)
         open_map = {o.get("orderId"): o for o in open_orders if o.get("orderId")}
@@ -129,10 +144,12 @@ class InstrumentEngine:
     # Размещение ордеров
     # ------------------------------------------------------------------
     async def _place_entry_orders(self) -> None:
+        """Размещает парные входные условные ордера для Long и Short."""
         filters = self._require_filters()
         qty_str = self._format_qty(self.settings.base_quantity, filters)
         trigger_price = self._format_price(self.settings.entry_trigger_price, filters)
 
+        # Long Entry Order
         order_long_id = await self.client.place_conditional_market_order(
             symbol=self.settings.symbol,
             side="Buy",
@@ -156,6 +173,7 @@ class InstrumentEngine:
         )
         await self._log(f"Условный ордер на вход LONG выставлен ({order_long_id})")
 
+        # Short Entry Order
         order_short_id = await self.client.place_conditional_market_order(
             symbol=self.settings.symbol,
             side="Sell",
@@ -180,6 +198,7 @@ class InstrumentEngine:
         await self._log(f"Условный ордер на вход SHORT выставлен ({order_short_id})")
 
     async def _deploy_protection_orders(self) -> None:
+        """Размещает защитные ордера (TP и SL) после открытия позиций."""
         if self._protection_deployed:
             return
         filters = self._require_filters()
@@ -208,6 +227,7 @@ class InstrumentEngine:
         base_qty: float,
         filters: SymbolFilters,
     ) -> None:
+        """Создаёт лимитные ордера тейк-профитов."""
         for idx, tp in enumerate(self.settings.take_profits, start=1):
             qty = base_qty * tp.quantity_percent / 100.0
             qty_str = self._format_qty(qty, filters)
@@ -249,6 +269,7 @@ class InstrumentEngine:
         base_qty: float,
         filters: SymbolFilters,
     ) -> None:
+        """Создаёт условные ордера стоп-лоссов."""
         sorted_stops = self.settings.stop_losses_sorted
         for idx, sl in enumerate(sorted_stops, start=1):
             qty = base_qty * sl.quantity_percent / 100.0
@@ -292,6 +313,7 @@ class InstrumentEngine:
     # Обработка статусов
     # ------------------------------------------------------------------
     async def _handle_order_status_change(self, order: ManagedOrder, status: str, data: Optional[dict]) -> None:
+        """Обрабатывает изменение статуса ордера."""
         if status == "Filled":
             await self._on_order_filled(order, data)
         elif status in {"Cancelled", "Rejected"}:
@@ -300,6 +322,7 @@ class InstrumentEngine:
             await self._log(f"Ордер {order.order_id} принят биржей", level="debug")
 
     async def _on_order_filled(self, order: ManagedOrder, data: Optional[dict]) -> None:
+        """Обрабатывает исполненный ордер."""
         qty = float(data.get("cumExecQty") or data.get("qty") or order.quantity) if data else order.quantity
         price = float(data.get("avgPrice") or data.get("triggerPrice") or data.get("price") or order.price or 0) if data else order.price or 0
         await self._log(f"Ордер {order.order_id} ({order.kind.value}) исполнен на {qty}")
@@ -318,10 +341,12 @@ class InstrumentEngine:
             await self._log(f"Доливка {order.position_side.upper()} выполнена на {qty}")
 
     async def _check_activation_ready(self) -> None:
+        """Проверяет готовность к размещению защитных ордеров."""
         if all(self._entry_prices.get(side) for side in ("long", "short")) and not self._protection_deployed:
             await self._deploy_protection_orders()
 
     async def _maybe_place_refill_after_tp(self, side: str, qty: float) -> None:
+        """Размещает доливку после исполнения первого TP (если включено)."""
         refill = self.settings.refill
         if not refill.enabled_after_tp1 or refill.quantity_percent <= 0:
             return
@@ -363,6 +388,7 @@ class InstrumentEngine:
         await self._log(f"После TP выставлена доливка {side.upper()} по цене {price_str} ({order_id})")
 
     async def _place_refill_after_stop(self, side: str, qty: float) -> None:
+        """Размещает доливку после срабатывания стоп-лосса."""
         if qty <= 0:
             return
         filters = self._require_filters()
@@ -396,6 +422,7 @@ class InstrumentEngine:
         await self._log(f"После SL выставлена доливка {side.upper()} по цене {price_str} ({order_id})")
 
     async def _finalize_trade(self, reason: str) -> None:
+        """Завершает торговлю: отменяет все ордера и закрывает позиции."""
         if self._finalized:
             return
         self._finalized = True
@@ -415,18 +442,25 @@ class InstrumentEngine:
     # Вспомогательные методы
     # ------------------------------------------------------------------
     def _require_filters(self) -> SymbolFilters:
+        """Возвращает биржевые фильтры или поднимает исключение."""
         if not self._symbol_filters:
             raise RuntimeError("Не удалось получить биржевые фильтры")
         return self._symbol_filters
 
-    def _format_qty(self, qty: float, filters: SymbolFilters) -> str:
+    @staticmethod
+    def _format_qty(qty: float, filters: SymbolFilters) -> str:
+        """Форматирует количество согласно биржевым фильтрам."""
         qty = ensure_minimum(qty, filters.min_qty)
         return clamp_to_step_str(qty, filters.qty_step, rounding=ROUND_DOWN)
 
-    def _format_price(self, price: float, filters: SymbolFilters) -> str:
+    @staticmethod
+    def _format_price(price: float, filters: SymbolFilters) -> str:
+        """Форматирует цену согласно биржевым фильтрам."""
         return clamp_to_step_str(price, filters.tick_size, rounding=ROUND_HALF_UP)
 
-    def _extract_status(self, data: Optional[dict]) -> Optional[str]:
+    @staticmethod
+    def _extract_status(data: Optional[dict]) -> Optional[str]:
+        """Извлекает статус ордера из данных API."""
         if not data:
             return None
         for key in ("orderStatus", "stopOrderStatus", "triggerStatus"):
@@ -435,7 +469,9 @@ class InstrumentEngine:
                 return status
         return None
 
-    def _update_order_from_data(self, order: ManagedOrder, data: Optional[dict]) -> None:
+    @staticmethod
+    def _update_order_from_data(order: ManagedOrder, data: Optional[dict]) -> None:
+        """Обновляет данные ордера из ответа API."""
         if not data:
             return
         if data.get("price"):
@@ -444,16 +480,20 @@ class InstrumentEngine:
             order.trigger_price = float(data["triggerPrice"])
 
     async def _emit_status(self, status: InstrumentStatus, details: Optional[str] = None) -> None:
+        """Отправляет событие изменения статуса."""
         self.status = status
-        await self.events.put(StatusEvent(self.settings.symbol, datetime.utcnow(), status, details))
+        await self.events.put(StatusEvent(self.settings.symbol, datetime.now(UTC), status, details))
 
     async def _emit_orders_event(self) -> None:
-        await self.events.put(OrdersEvent(self.settings.symbol, datetime.utcnow(), list(self._orders.values())))
+        """Отправляет событие обновления списка ордеров."""
+        await self.events.put(OrdersEvent(self.settings.symbol, datetime.now(UTC), list(self._orders.values())))
 
     async def _log(self, message: str, level: str = "info") -> None:
-        await self.events.put(LogEvent(self.settings.symbol, datetime.utcnow(), level, message))
+        """Отправляет событие записи в лог."""
+        await self.events.put(LogEvent(self.settings.symbol, datetime.now(UTC), level, message))
 
     async def _handle_error(self, exc: Exception) -> None:
+        """Обрабатывает критические ошибки."""
         await self._log(f"Ошибка: {exc}", level="error")
         await self._emit_status(InstrumentStatus.ERROR, str(exc))
         self._stop_event.set()

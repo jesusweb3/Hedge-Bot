@@ -1,10 +1,14 @@
 #main-layout {
     padding: 1 2;
-    gap: 1;
+    margin: 1 0;
 }
 
 #control-bar {
-    gap: 1;
+    margin: 0 0 1 0;
+}
+
+#control-bar Button {
+    margin: 0 1 0 0;
 }
 
 #instrument-scroll {
@@ -40,16 +44,24 @@
 }
 
 .status-pane {
-    gap: 1;
+    margin: 1 0;
 }
 
-TextLog {
+.status-pane Button {
+    margin: 0 1 0 0;
+}
+
+RichLog {
     height: 20;
 }
 
 #instrument-container {
-    gap: 2;
+    margin: 2 0;
     padding: 1;
+}
+
+#instrument-container > * {
+    margin: 0 0 2 0;
 }
 
 .client-status {

@@ -1,3 +1,11 @@
+# src/hedgebot/config.py
+"""
+Конфигурационные классы для настройки торговых инструментов.
+Определяет структуры данных для тейк-профитов, стоп-лоссов, доливок и общих настроек.
+Включает валидацию параметров и методы клонирования для безопасной работы с настройками.
+Все классы используют slots для оптимизации памяти и производительности.
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -6,12 +14,13 @@ from typing import List
 
 @dataclass(slots=True)
 class TakeProfitLevel:
-    """Настройки одного тейк-профита."""
+    """Настройки одного уровня тейк-профита."""
 
-    offset_percent: float
-    quantity_percent: float
+    offset_percent: float    # Смещение от цены входа в процентах
+    quantity_percent: float  # Процент от позиции для закрытия
 
     def clamp(self) -> "TakeProfitLevel":
+        """Возвращает копию с приведенными к float значениями."""
         return TakeProfitLevel(
             offset_percent=float(self.offset_percent),
             quantity_percent=float(self.quantity_percent),
@@ -20,12 +29,13 @@ class TakeProfitLevel:
 
 @dataclass(slots=True)
 class StopLossLevel:
-    """Настройки одного стоп-лосса."""
+    """Настройки одного уровня стоп-лосса."""
 
-    offset_percent: float
-    quantity_percent: float
+    offset_percent: float    # Смещение от цены входа в процентах
+    quantity_percent: float  # Процент от позиции для закрытия
 
     def clamp(self) -> "StopLossLevel":
+        """Возвращает копию с приведенными к float значениями."""
         return StopLossLevel(
             offset_percent=float(self.offset_percent),
             quantity_percent=float(self.quantity_percent),
@@ -34,13 +44,14 @@ class StopLossLevel:
 
 @dataclass(slots=True)
 class RefillConfig:
-    """Настройки доливки позиции."""
+    """Настройки системы доливок позиции."""
 
-    enabled_after_tp1: bool = False
-    price_offset_percent: float = 0.0
-    quantity_percent: float = 0.0
+    enabled_after_tp1: bool = False      # Включить доливку после первого TP
+    price_offset_percent: float = 0.0    # Смещение цены доливки от входа в %
+    quantity_percent: float = 0.0        # Размер доливки в % от базового объёма
 
     def clamp(self) -> "RefillConfig":
+        """Возвращает копию с приведенными к правильным типам значениями."""
         return RefillConfig(
             enabled_after_tp1=bool(self.enabled_after_tp1),
             price_offset_percent=float(self.price_offset_percent),
@@ -50,18 +61,19 @@ class RefillConfig:
 
 @dataclass(slots=True)
 class InstrumentSettings:
-    """Полный набор пользовательских настроек для инструмента."""
+    """Полный набор пользовательских настроек для торгового инструмента."""
 
-    symbol: str
-    base_quantity: float
-    entry_trigger_price: float
-    entry_trigger_direction: int = 2
-    trigger_by: str = "LastPrice"
-    take_profits: List[TakeProfitLevel] = field(default_factory=list)
-    stop_losses: List[StopLossLevel] = field(default_factory=list)
-    refill: RefillConfig = field(default_factory=RefillConfig)
+    symbol: str                                    # Торговая пара (например, BTCUSDT)
+    base_quantity: float                           # Базовый объём позиции
+    entry_trigger_price: float                     # Цена срабатывания входа
+    entry_trigger_direction: int = 2               # Направление триггера (1=выше, 2=ниже)
+    trigger_by: str = "LastPrice"                  # Тип цены для триггера
+    take_profits: List[TakeProfitLevel] = field(default_factory=list)  # Список тейк-профитов (всегда 2)
+    stop_losses: List[StopLossLevel] = field(default_factory=list)     # Список стоп-лоссов (до 10)
+    refill: RefillConfig = field(default_factory=RefillConfig)         # Настройки доливок
 
     def clamp(self) -> "InstrumentSettings":
+        """Возвращает копию настроек с приведенными к правильным типам значениями."""
         return InstrumentSettings(
             symbol=self.symbol.strip().upper(),
             base_quantity=float(self.base_quantity),
@@ -74,6 +86,7 @@ class InstrumentSettings:
         )
 
     def validate(self) -> None:
+        """Валидирует корректность всех настроек."""
         if not self.symbol:
             raise ValueError("Символ не может быть пустым")
         if self.base_quantity <= 0:
@@ -99,9 +112,11 @@ class InstrumentSettings:
 
     @property
     def stop_losses_sorted(self) -> List[StopLossLevel]:
+        """Возвращает стоп-лоссы, отсортированные по проценту смещения."""
         return sorted(self.stop_losses, key=lambda sl: sl.offset_percent)
 
     def clone(self) -> "InstrumentSettings":
+        """Создаёт глубокую копию настроек для безопасного использования."""
         return InstrumentSettings(
             symbol=self.symbol,
             base_quantity=self.base_quantity,

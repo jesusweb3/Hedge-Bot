@@ -1,8 +1,16 @@
+# src/hedgebot/ui/app.py
+"""
+Главное приложение Hedg-Bot с интерфейсом на Textual.
+Управляет торговыми инструментами, создает клиента для API Bybit,
+запускает торговые движки и обрабатывает события через сообщения.
+Предоставляет интерфейс для добавления, управления и мониторинга торговых инструментов.
+"""
+
 from __future__ import annotations
 
 import asyncio
 from contextlib import suppress
-from datetime import datetime
+from datetime import datetime, UTC
 import uuid
 from typing import Dict, Optional
 
@@ -60,16 +68,16 @@ class HedgeBotApp(App):
         try:
             self.client = BybitClient()
             self.status_label.update("API клиента инициализирован.")
-        except Exception as exc:  # pylint: disable=broad-except
+        except Exception as exc:
             self.status_label.update(f"Ошибка инициализации API: {exc}")
 
-    async def on_button_pressed(self, event: Button.Pressed) -> None:
+    def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "add":
-            await self.action_open_add_dialog()
+            asyncio.create_task(self.action_open_add_dialog())
         elif event.button.id == "start-all":
-            await self._run_for_all("start")
+            asyncio.create_task(self._run_for_all("start"))
         elif event.button.id == "stop-all":
-            await self._run_for_all("stop")
+            asyncio.create_task(self._run_for_all("stop"))
 
     async def action_open_add_dialog(self) -> None:
         if not self.client:
@@ -78,20 +86,20 @@ class HedgeBotApp(App):
         defaults = self._default_settings()
         await self.push_screen(AddInstrumentScreen(defaults))
 
-    async def on_add_instrument_message(self, message: AddInstrumentMessage) -> None:
-        await self._create_instrument(message.settings)
+    def on_add_instrument_message(self, message: AddInstrumentMessage) -> None:
+        asyncio.create_task(self._create_instrument(message.settings))
 
-    async def on_instrument_command_message(self, message: InstrumentCommandMessage) -> None:
+    def on_instrument_command_message(self, message: InstrumentCommandMessage) -> None:
         payload = message.payload
         if payload.command == "remove":
-            await self._remove_instrument(payload.instrument_id)
+            asyncio.create_task(self._remove_instrument(payload.instrument_id))
             return
-        await self._run_command(payload)
+        asyncio.create_task(self._run_command(payload))
 
-    async def on_instrument_event_message(self, event: InstrumentEventMessage) -> None:
+    def on_instrument_event_message(self, event: InstrumentEventMessage) -> None:
         widget = self.widgets.get(event.instrument_id)
         if widget:
-            await widget.post_message(event)
+            widget.post_message(event)
 
     async def _create_instrument(self, settings: InstrumentSettings) -> None:
         if not self.client:
@@ -107,16 +115,16 @@ class HedgeBotApp(App):
         self.engines[instrument_id] = engine
         self.widgets[instrument_id] = widget
         await container.mount(widget)
-        task = self.add_background_task(self._consume_events(instrument_id, engine))
+        task = asyncio.create_task(self._consume_events(instrument_id, engine))
         self.event_tasks[instrument_id] = task
-        await engine.events.put(StatusEvent(settings.symbol, datetime.utcnow(), InstrumentStatus.CONFIGURED, "Инструмент создан"))
-        await engine.events.put(OrdersEvent(settings.symbol, datetime.utcnow(), []))
-        await engine.events.put(LogEvent(settings.symbol, datetime.utcnow(), "info", "Инструмент добавлен"))
+        await engine.events.put(StatusEvent(settings.symbol, datetime.now(UTC), InstrumentStatus.CONFIGURED, "Инструмент создан"))
+        await engine.events.put(OrdersEvent(settings.symbol, datetime.now(UTC), []))
+        await engine.events.put(LogEvent(settings.symbol, datetime.now(UTC), "info", "Инструмент добавлен"))
 
     async def _consume_events(self, instrument_id: str, engine: InstrumentEngine) -> None:
         while True:
             event = await engine.events.get()
-            await self.post_message(InstrumentEventMessage(instrument_id, event))
+            self.post_message(InstrumentEventMessage(instrument_id, event))
 
     async def _run_command(self, payload: InstrumentCommand) -> None:
         engine = self.engines.get(payload.instrument_id)
@@ -131,8 +139,8 @@ class HedgeBotApp(App):
                 await engine.close_all()
             elif payload.command == "update" and payload.settings:
                 await engine.update_settings(payload.settings)
-        except Exception as exc:  # pylint: disable=broad-except
-            await engine.events.put(LogEvent(engine.settings.symbol, datetime.utcnow(), "error", f"Ошибка команды: {exc}"))
+        except RuntimeError as exc:
+            await engine.events.put(LogEvent(engine.settings.symbol, datetime.now(UTC), "error", f"Ошибка команды: {exc}"))
 
     async def _remove_instrument(self, instrument_id: str) -> None:
         engine = self.engines.pop(instrument_id, None)
@@ -145,20 +153,22 @@ class HedgeBotApp(App):
         if engine:
             try:
                 await engine.stop()
-            except Exception:  # pylint: disable=broad-except
+            except RuntimeError:
                 pass
         if widget:
-            widget.remove()
+            await widget.remove()
 
     async def _run_for_all(self, command: str) -> None:
         tasks = []
         for iid in list(self.engines.keys()):
-            payload = InstrumentCommand(iid, command)
-            tasks.append(self._run_command(payload))
+            if command in {"start", "stop", "close", "update", "remove"}:
+                payload = InstrumentCommand(iid, command)  # type: ignore[arg-type]
+                tasks.append(self._run_command(payload))
         if tasks:
             await asyncio.gather(*tasks, return_exceptions=True)
 
-    def _default_settings(self) -> InstrumentSettings:
+    @staticmethod
+    def _default_settings() -> InstrumentSettings:
         return InstrumentSettings(
             symbol="BTCUSDT",
             base_quantity=0.001,

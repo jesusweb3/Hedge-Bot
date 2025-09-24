@@ -1,3 +1,10 @@
+# src/hedgebot/ui/messages.py
+"""
+Сообщения для взаимодействия между компонентами UI в Textual.
+Определяет структуры данных для передачи команд и событий между виджетами,
+включая команды управления инструментами и события от торговых движков.
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -10,6 +17,8 @@ from ..events import InstrumentEvent
 
 
 class InstrumentEventMessage(Message):
+    """Сообщение с событием от торгового движка к UI виджету."""
+
     def __init__(self, instrument_id: str, event: InstrumentEvent) -> None:
         super().__init__()
         self.instrument_id = instrument_id
@@ -18,18 +27,24 @@ class InstrumentEventMessage(Message):
 
 @dataclass(slots=True)
 class InstrumentCommand:
+    """Команда для управления торговым инструментом."""
+
     instrument_id: str
     command: Literal["start", "stop", "close", "update", "remove"]
     settings: Optional[InstrumentSettings] = None
 
 
 class InstrumentCommandMessage(Message):
+    """Сообщение с командой от UI к торговому движку."""
+
     def __init__(self, payload: InstrumentCommand) -> None:
         super().__init__()
         self.payload = payload
 
 
 class AddInstrumentMessage(Message):
+    """Сообщение о добавлении нового торгового инструмента."""
+
     def __init__(self, settings: InstrumentSettings) -> None:
         super().__init__()
         self.settings = settings

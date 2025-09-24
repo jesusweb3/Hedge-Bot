@@ -1,3 +1,10 @@
+# src/hedgebot/ui/add_instrument.py
+"""
+Модальное окно для добавления нового торгового инструмента.
+Содержит форму с настройками символа, объёмов, тейк-профитов, стоп-лоссов и доливок.
+Валидирует входные данные и отправляет сообщение с настройками в главное приложение.
+"""
+
 from __future__ import annotations
 
 from typing import List
@@ -75,14 +82,14 @@ class AddInstrumentScreen(ModalScreen[None]):
                 yield Button("Создать", id="create", variant="success")
                 yield Button("Отмена", id="cancel", variant="warning")
 
-    async def on_button_pressed(self, event: Button.Pressed) -> None:
+    def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "cancel":
             self.dismiss(None)
             return
         if event.button.id == "create":
             try:
                 settings = self._collect_settings()
-                await self.post_message(AddInstrumentMessage(settings))
+                self.post_message(AddInstrumentMessage(settings))
                 self.message_label.set_classes("settings-message success")
                 self.message_label.update("Инструмент создан")
                 self.dismiss(None)
@@ -117,7 +124,8 @@ class AddInstrumentScreen(ModalScreen[None]):
         settings.validate()
         return settings
 
-    def _parse_stop_levels(self, value: str) -> List[StopLossLevel]:
+    @staticmethod
+    def _parse_stop_levels(value: str) -> List[StopLossLevel]:
         parts = [p.strip() for p in (value or "").split(",") if p.strip()]
         if not parts:
             raise ValueError("Необходимо указать хотя бы один стоп-лосс")

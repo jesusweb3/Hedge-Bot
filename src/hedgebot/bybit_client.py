@@ -1,3 +1,12 @@
+# src/hedgebot/bybit_client.py
+"""
+Асинхронная обёртка для работы с API биржи Bybit.
+Предоставляет методы для работы с позициями, ордерами, проверки статусов и настроек.
+Обеспечивает потокобезопасность через asyncio.Lock и автоматически управляет
+настройками хедж-режима. Все методы API выполняются в отдельных потоках
+для предотвращения блокировки основного цикла событий.
+"""
+
 from __future__ import annotations
 
 import asyncio
@@ -12,21 +21,24 @@ from pybit.unified_trading import HTTP
 
 
 def _str_to_bool(v: Optional[str]) -> bool:
+    """Преобразует строковое значение в булево."""
     return (v or "").strip().lower() in {"1", "true", "yes", "y", "on"}
 
 
 @dataclass(slots=True)
 class SymbolFilters:
-    qty_step: float
-    min_qty: float
-    max_qty: float
-    tick_size: float
+    """Биржевые фильтры для торгового символа."""
+    qty_step: float  # Шаг количества
+    min_qty: float  # Минимальное количество
+    max_qty: float  # Максимальное количество
+    tick_size: float  # Шаг цены
 
 
 class BybitClient:
-    """Асинхронный обёртка над REST-интерфейсом pybit."""
+    """Асинхронная обёртка над REST-интерфейсом pybit для работы с Bybit API."""
 
     def __init__(self) -> None:
+        """Инициализирует клиент с настройками из переменных окружения."""
         load_dotenv()
         api_key = os.getenv("BYBIT_API_KEY")
         api_secret = os.getenv("BYBIT_API_SECRET")
@@ -34,10 +46,11 @@ class BybitClient:
             raise RuntimeError("Не найдены ключи BYBIT_API_KEY/BYBIT_API_SECRET в .env")
         testnet = _str_to_bool(os.getenv("BYBIT_TESTNET"))
         self._http = HTTP(testnet=testnet, api_key=api_key, api_secret=api_secret,
-                           timeout=10_000, recv_window=5_000)
+                          timeout=10_000, recv_window=5_000)
         self._lock = asyncio.Lock()
 
     async def _call(self, func, *args, **kwargs):
+        """Выполняет синхронный вызов API в отдельном потоке с блокировкой."""
         async with self._lock:
             return await asyncio.to_thread(func, *args, **kwargs)
 
@@ -45,44 +58,52 @@ class BybitClient:
     # Общие проверки и данные
     # ------------------------------------------------------------------
     async def ensure_symbol_trading(self, symbol: str) -> Tuple[bool, str]:
+        """Проверяет доступность символа для торговли."""
         return await self._call(self._check_symbol_status, symbol)
 
     async def ensure_hedge_mode(self, symbol: str) -> None:
+        """Обеспечивает включение хедж-режима для символа."""
         enabled = await self._call(self._check_hedge_mode, symbol)
         if not enabled:
             await self._call(self._enable_hedge_mode, symbol)
 
     async def get_symbol_filters(self, symbol: str) -> SymbolFilters:
+        """Получает биржевые фильтры для символа."""
         return await self._call(self._get_symbol_filters, symbol)
 
     async def get_open_orders(self, symbol: str) -> List[dict]:
+        """Получает список всех открытых ордеров по символу."""
         return await self._call(self._get_open_orders, symbol)
 
     async def get_order_info(self, symbol: str, order_id: str) -> Optional[dict]:
+        """Получает информацию об ордере по его ID."""
         return await self._call(self._get_order_info, symbol, order_id)
 
     async def get_positions(self, symbol: str) -> List[dict]:
+        """Получает список открытых позиций по символу."""
         return await self._call(self._get_positions, symbol)
 
     async def get_position_side(self, symbol: str, side: str) -> Optional[dict]:
+        """Получает позицию конкретной стороны (long/short)."""
         return await self._call(self._get_position_side, symbol, side)
 
     # ------------------------------------------------------------------
     # Управление ордерами
     # ------------------------------------------------------------------
     async def place_conditional_market_order(
-        self,
-        symbol: str,
-        side: str,
-        qty: str,
-        trigger_price: str,
-        trigger_direction: int,
-        trigger_by: str = "LastPrice",
-        position_idx: Optional[int] = None,
-        reduce_only: bool = False,
-        close_on_trigger: bool = False,
-        order_link_id: Optional[str] = None,
+            self,
+            symbol: str,
+            side: str,
+            qty: str,
+            trigger_price: str,
+            trigger_direction: int,
+            trigger_by: str = "LastPrice",
+            position_idx: Optional[int] = None,
+            reduce_only: bool = False,
+            close_on_trigger: bool = False,
+            order_link_id: Optional[str] = None,
     ) -> str:
+        """Размещает условный рыночный ордер."""
         return await self._call(
             self._place_conditional_market_order,
             symbol,
@@ -98,16 +119,17 @@ class BybitClient:
         )
 
     async def place_limit_order(
-        self,
-        symbol: str,
-        side: str,
-        qty: str,
-        price: str,
-        position_idx: Optional[int] = None,
-        time_in_force: str = "GTC",
-        reduce_only: bool = True,
-        order_link_id: Optional[str] = None,
+            self,
+            symbol: str,
+            side: str,
+            qty: str,
+            price: str,
+            position_idx: Optional[int] = None,
+            time_in_force: str = "GTC",
+            reduce_only: bool = True,
+            order_link_id: Optional[str] = None,
     ) -> str:
+        """Размещает лимитный ордер."""
         return await self._call(
             self._place_limit_order,
             symbol,
@@ -121,18 +143,22 @@ class BybitClient:
         )
 
     async def cancel_order(self, symbol: str, order_id: str) -> None:
+        """Отменяет ордер по ID."""
         await self._call(self._cancel_order, symbol, order_id)
 
     async def cancel_all_orders(self, symbol: str) -> None:
+        """Отменяет все ордера по символу."""
         await self._call(self._cancel_all_orders, symbol)
 
     async def close_position_market(self, symbol: str, side: str) -> Optional[str]:
+        """Закрывает позицию рыночным ордером."""
         return await self._call(self._close_position_market, symbol, side)
 
     # ------------------------------------------------------------------
     # Реализация синхронных методов
     # ------------------------------------------------------------------
     def _check_symbol_status(self, symbol: str) -> Tuple[bool, str]:
+        """Проверяет статус символа на бирже."""
         resp = self._http.get_instruments_info(category="linear", symbol=symbol)
         if not isinstance(resp, dict) or resp.get("retCode") != 0:
             raise RuntimeError(f"Bybit API error: {resp}")
@@ -143,6 +169,7 @@ class BybitClient:
         return status == "Trading", status
 
     def _get_symbol_filters(self, symbol: str) -> SymbolFilters:
+        """Получает биржевые фильтры для символа."""
         resp = self._http.get_instruments_info(category="linear", symbol=symbol)
         if not isinstance(resp, dict) or resp.get("retCode") != 0:
             raise RuntimeError(f"Bybit API error: {resp}")
@@ -160,6 +187,7 @@ class BybitClient:
         )
 
     def _check_hedge_mode(self, symbol: str) -> bool:
+        """Проверяет включен ли хедж-режим для символа."""
         resp = self._http.get_positions(category="linear", symbol=symbol)
         if not isinstance(resp, dict) or resp.get("retCode") != 0:
             raise RuntimeError(f"Bybit API error: {resp}")
@@ -168,30 +196,35 @@ class BybitClient:
         return 1 in idxs and 2 in idxs
 
     def _enable_hedge_mode(self, symbol: str) -> None:
+        """Включает хедж-режим для символа."""
         resp = self._http.switch_position_mode(category="linear", symbol=symbol, mode=3)
         if not isinstance(resp, dict) or resp.get("retCode") != 0:
             raise RuntimeError(f"Не удалось включить хедж-режим: {resp}")
 
     def _get_open_orders(self, symbol: str) -> List[dict]:
+        """Получает список открытых ордеров."""
         resp = self._http.get_open_orders(category="linear", symbol=symbol)
         if not isinstance(resp, dict) or resp.get("retCode") != 0:
             raise RuntimeError(f"Bybit API error: {resp}")
         return resp["result"].get("list") or []
 
     def _get_order_info(self, symbol: str, order_id: str) -> Optional[dict]:
-        # direct lookup
+        """Поиск ордера по ID среди открытых и в истории."""
+        # Прямой поиск по ID
         resp = self._http.get_open_orders(category="linear", symbol=symbol, orderId=order_id)
         if isinstance(resp, dict) and resp.get("retCode") == 0:
             items = resp.get("result", {}).get("list") or []
             if items:
                 return items[0]
-        # search open orders list
+
+        # Поиск среди всех открытых ордеров
         resp_open = self._http.get_open_orders(category="linear", symbol=symbol)
         if isinstance(resp_open, dict) and resp_open.get("retCode") == 0:
             for o in resp_open.get("result", {}).get("list") or []:
                 if o.get("orderId") == order_id:
                     return o
-        # lookup history
+
+        # Поиск в истории ордеров с пагинацией
         cursor = None
         pages = 0
         while pages < 6:
@@ -213,6 +246,7 @@ class BybitClient:
         return None
 
     def _get_positions(self, symbol: str) -> List[dict]:
+        """Получает открытые позиции по символу."""
         resp = self._http.get_positions(category="linear", symbol=symbol)
         if not isinstance(resp, dict) or resp.get("retCode") != 0:
             raise RuntimeError(f"Bybit API error: {resp}")
@@ -220,6 +254,7 @@ class BybitClient:
         return [p for p in items if float(p.get("size", "0") or 0) != 0]
 
     def _get_position_side(self, symbol: str, side: str) -> Optional[dict]:
+        """Получает позицию конкретной стороны в хедж-режиме."""
         resp = self._http.get_positions(category="linear", symbol=symbol)
         if not isinstance(resp, dict) or resp.get("retCode") != 0:
             raise RuntimeError(f"Bybit API error: {resp}")
@@ -237,18 +272,19 @@ class BybitClient:
         return None
 
     def _place_conditional_market_order(
-        self,
-        symbol: str,
-        side: str,
-        qty: str,
-        trigger_price: str,
-        trigger_direction: int,
-        trigger_by: str,
-        position_idx: Optional[int],
-        reduce_only: bool,
-        close_on_trigger: bool,
-        order_link_id: Optional[str],
+            self,
+            symbol: str,
+            side: str,
+            qty: str,
+            trigger_price: str,
+            trigger_direction: int,
+            trigger_by: str,
+            position_idx: Optional[int],
+            reduce_only: bool,
+            close_on_trigger: bool,
+            order_link_id: Optional[str],
     ) -> str:
+        """Размещает условный рыночный ордер."""
         params: Dict[str, Any] = dict(
             category="linear",
             symbol=symbol,
@@ -272,16 +308,17 @@ class BybitClient:
         return resp["result"]["orderId"]
 
     def _place_limit_order(
-        self,
-        symbol: str,
-        side: str,
-        qty: str,
-        price: str,
-        position_idx: Optional[int],
-        time_in_force: str,
-        reduce_only: bool,
-        order_link_id: Optional[str],
+            self,
+            symbol: str,
+            side: str,
+            qty: str,
+            price: str,
+            position_idx: Optional[int],
+            time_in_force: str,
+            reduce_only: bool,
+            order_link_id: Optional[str],
     ) -> str:
+        """Размещает лимитный ордер."""
         params: Dict[str, Any] = dict(
             category="linear",
             symbol=symbol,
@@ -301,16 +338,19 @@ class BybitClient:
         return resp["result"]["orderId"]
 
     def _cancel_order(self, symbol: str, order_id: str) -> None:
+        """Отменяет ордер по ID."""
         resp = self._http.cancel_order(category="linear", symbol=symbol, orderId=order_id)
         if not isinstance(resp, dict) or resp.get("retCode") not in (0, 110001):
             raise RuntimeError(f"Bybit API error: {resp}")
 
     def _cancel_all_orders(self, symbol: str) -> None:
+        """Отменяет все ордера по символу."""
         resp = self._http.cancel_all_orders(category="linear", symbol=symbol)
         if not isinstance(resp, dict) or resp.get("retCode") not in (0, 110001):
             raise RuntimeError(f"Bybit API error: {resp}")
 
     def _close_position_market(self, symbol: str, side: str) -> Optional[str]:
+        """Закрывает позицию рыночным ордером с reduce-only."""
         resp = self._http.get_positions(category="linear", symbol=symbol)
         if not isinstance(resp, dict) or resp.get("retCode") != 0:
             raise RuntimeError(f"Bybit API error: {resp}")
