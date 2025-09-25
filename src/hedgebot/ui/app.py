@@ -1,169 +1,190 @@
-# src/hedgebot/ui/app.py
-"""
-Главное приложение Hedg-Bot с интерфейсом на Textual.
-Управляет торговыми инструментами, создает клиента для API Bybit,
-запускает торговые движки и обрабатывает события через сообщения.
-Предоставляет интерфейс для добавления, управления и мониторинга торговых инструментов.
-"""
-
+"""Main Flet application for Hedge-Bot."""
 from __future__ import annotations
 
 import asyncio
 from contextlib import suppress
-from datetime import datetime, UTC
+from datetime import UTC, datetime
 import uuid
 from typing import Dict, Optional
 
-from textual.app import App, ComposeResult
-from textual.containers import Horizontal, Vertical, VerticalScroll
-from textual.widgets import Button, Footer, Header, Static
+import flet as ft
 
+from ..bybit_client import BybitClient
 from ..config import InstrumentSettings, RefillConfig, StopLossLevel, TakeProfitLevel
+from ..engine import InstrumentEngine
 from ..events import LogEvent, OrdersEvent, StatusEvent
 from ..state import InstrumentStatus
-from ..bybit_client import BybitClient
-from ..engine import InstrumentEngine
-from .add_instrument import AddInstrumentScreen
-from .instrument_widget import InstrumentWidget
-from .messages import (
-    AddInstrumentMessage,
-    InstrumentCommand,
-    InstrumentCommandMessage,
-    InstrumentEventMessage,
-)
+from .add_instrument import AddInstrumentDialog
+from .instrument_widget import InstrumentCard
 
 
-class HedgeBotApp(App):
-    CSS_PATH = "app.css"
+class HedgeBotFletApp:
+    """Controller that wires business logic with the Flet UI."""
 
-    BINDINGS = [
-        ("a", "open_add_dialog", "Добавить инструмент"),
-    ]
-
-    def __init__(self) -> None:
-        super().__init__()
+    def __init__(self, page: ft.Page) -> None:
+        self.page = page
         self.client: Optional[BybitClient] = None
         self.engines: Dict[str, InstrumentEngine] = {}
-        self.widgets: Dict[str, InstrumentWidget] = {}
-        self.event_tasks: Dict[str, asyncio.Task] = {}
-        self.status_label: Static | None = None
-        self.instrument_container: Vertical | None = None
+        self.widgets: Dict[str, InstrumentCard] = {}
+        self.event_tasks: Dict[str, asyncio.Task[None]] = {}
+        self.status_text = ft.Text("Инициализация...", selectable=True)
+        self.instrument_column = ft.Column(
+            spacing=15,
+            expand=1,
+            scroll=ft.ScrollMode.AUTO,
+        )
         self._instrument_counter = 1
 
-    def compose(self) -> ComposeResult:
-        self.status_label = Static("", classes="client-status")
-        self.instrument_container = Vertical(id="instrument-container")
+    async def initialize(self) -> None:
+        """Configure page settings and initialize API client."""
 
-        yield Header(show_clock=True)
-        with Vertical(id="main-layout"):
-            with Horizontal(id="control-bar"):
-                yield Button("Добавить инструмент", id="add", variant="primary")
-                yield Button("Запустить все", id="start-all", variant="success")
-                yield Button("Остановить все", id="stop-all", variant="warning")
-            yield self.status_label
-            yield VerticalScroll(self.instrument_container, id="instrument-scroll")
-        yield Footer()
+        self.page.title = "Hedge-Bot"
+        self.page.padding = 20
+        self.page.horizontal_alignment = ft.CrossAxisAlignment.STRETCH
+        self.page.vertical_alignment = ft.MainAxisAlignment.START
 
-    async def on_mount(self) -> None:
+        add_button = ft.FilledButton("Добавить инструмент", icon=ft.icons.ADD, on_click=self._on_add_clicked)
+        start_all = ft.ElevatedButton("Запустить все", icon=ft.icons.PLAY_ARROW, on_click=self._on_start_all)
+        stop_all = ft.OutlinedButton("Остановить все", icon=ft.icons.STOP_CIRCLE, on_click=self._on_stop_all)
+
+        layout = ft.Column(
+            controls=[
+                ft.ResponsiveRow(
+                    controls=[
+                        ft.Container(add_button, col={'xs': 12, 'sm': 6, 'md': 4}),
+                        ft.Container(start_all, col={'xs': 12, 'sm': 6, 'md': 4}),
+                        ft.Container(stop_all, col={'xs': 12, 'sm': 6, 'md': 4}),
+                    ],
+                    alignment=ft.MainAxisAlignment.START,
+                ),
+                self.status_text,
+                self.instrument_column,
+            ],
+            expand=1,
+            spacing=20,
+        )
+        self.page.add(layout)
+
         try:
             self.client = BybitClient()
-            self.status_label.update("API клиента инициализирован.")
-        except Exception as exc:
-            self.status_label.update(f"Ошибка инициализации API: {exc}")
+            self.status_text.value = "API клиента инициализирован."
+        except Exception as exc:  # pylint: disable=broad-except
+            self.status_text.value = f"Ошибка инициализации API: {exc}"
 
-    def on_button_pressed(self, event: Button.Pressed) -> None:
-        if event.button.id == "add":
-            asyncio.create_task(self.action_open_add_dialog())
-        elif event.button.id == "start-all":
-            asyncio.create_task(self._run_for_all("start"))
-        elif event.button.id == "stop-all":
-            asyncio.create_task(self._run_for_all("stop"))
+        self.page.on_close = self._on_page_close
+        self.page.on_disconnect = self._on_page_close
+        await self.page.update_async()
 
-    async def action_open_add_dialog(self) -> None:
+    async def _on_page_close(self, _event: Optional[ft.ControlEvent]) -> None:
+        await self.shutdown()
+
+    async def shutdown(self) -> None:
+        """Cancel background tasks when the UI is closed."""
+
+        for task in list(self.event_tasks.values()):
+            task.cancel()
+            with suppress(asyncio.CancelledError):
+                await task
+        self.event_tasks.clear()
+
+    async def _on_add_clicked(self, _event: ft.ControlEvent) -> None:
         if not self.client:
-            self.status_label.update("API клиент недоступен. Проверьте настройки .env")
+            self.status_text.value = "API клиент недоступен. Проверьте настройки .env"
+            await self.page.update_async()
             return
-        defaults = self._default_settings()
-        await self.push_screen(AddInstrumentScreen(defaults))
+        dialog = AddInstrumentDialog(self.page, self._default_settings(), self.create_instrument)
+        await dialog.open()
 
-    def on_add_instrument_message(self, message: AddInstrumentMessage) -> None:
-        asyncio.create_task(self._create_instrument(message.settings))
+    async def _on_start_all(self, _event: ft.ControlEvent) -> None:
+        await self._run_for_all("start")
 
-    def on_instrument_command_message(self, message: InstrumentCommandMessage) -> None:
-        payload = message.payload
-        if payload.command == "remove":
-            asyncio.create_task(self._remove_instrument(payload.instrument_id))
-            return
-        asyncio.create_task(self._run_command(payload))
+    async def _on_stop_all(self, _event: ft.ControlEvent) -> None:
+        await self._run_for_all("stop")
 
-    def on_instrument_event_message(self, event: InstrumentEventMessage) -> None:
-        widget = self.widgets.get(event.instrument_id)
-        if widget:
-            widget.post_message(event)
+    async def create_instrument(self, settings: InstrumentSettings) -> None:
+        """Instantiate trading engine and create visual card for it."""
 
-    async def _create_instrument(self, settings: InstrumentSettings) -> None:
         if not self.client:
-            self.status_label.update("API клиент недоступен")
+            self.status_text.value = "API клиент недоступен"
+            await self.page.update_async()
             return
+
         instrument_id = f"{settings.symbol}-{self._instrument_counter}-{uuid.uuid4().hex[:4]}"
         self._instrument_counter += 1
-        container = self.instrument_container
-        if not container:
-            return
+
         engine = InstrumentEngine(settings, self.client)
-        widget = InstrumentWidget(instrument_id, settings)
+        widget = InstrumentCard(self, instrument_id, settings, engine)
+
         self.engines[instrument_id] = engine
         self.widgets[instrument_id] = widget
-        await container.mount(widget)
+        self.instrument_column.controls.append(widget.control)
+        await self.page.update_async()
+
         task = asyncio.create_task(self._consume_events(instrument_id, engine))
         self.event_tasks[instrument_id] = task
+
         await engine.events.put(StatusEvent(settings.symbol, datetime.now(UTC), InstrumentStatus.CONFIGURED, "Инструмент создан"))
         await engine.events.put(OrdersEvent(settings.symbol, datetime.now(UTC), []))
         await engine.events.put(LogEvent(settings.symbol, datetime.now(UTC), "info", "Инструмент добавлен"))
 
     async def _consume_events(self, instrument_id: str, engine: InstrumentEngine) -> None:
-        while True:
-            event = await engine.events.get()
-            self.post_message(InstrumentEventMessage(instrument_id, event))
+        """Consume engine events and forward them to UI widgets."""
 
-    async def _run_command(self, payload: InstrumentCommand) -> None:
-        engine = self.engines.get(payload.instrument_id)
-        if not engine:
-            return
         try:
-            if payload.command == "start":
-                await engine.start()
-            elif payload.command == "stop":
-                await engine.stop()
-            elif payload.command == "close":
-                await engine.close_all()
-            elif payload.command == "update" and payload.settings:
-                await engine.update_settings(payload.settings)
-        except RuntimeError as exc:
-            await engine.events.put(LogEvent(engine.settings.symbol, datetime.now(UTC), "error", f"Ошибка команды: {exc}"))
+            while True:
+                event = await engine.events.get()
+                widget = self.widgets.get(instrument_id)
+                if widget:
+                    await widget.handle_event(event)
+        except asyncio.CancelledError:
+            pass
 
-    async def _remove_instrument(self, instrument_id: str) -> None:
+    async def run_command(self, instrument_id: str, command: str, settings: Optional[InstrumentSettings] = None) -> Optional[str]:
+        """Execute a command on an instrument engine."""
+
+        engine = self.engines.get(instrument_id)
+        if not engine:
+            return "Инструмент не найден"
+        try:
+            if command == "start":
+                await engine.start()
+            elif command == "stop":
+                await engine.stop()
+            elif command == "close":
+                await engine.close_all()
+            elif command == "update" and settings:
+                await engine.update_settings(settings)
+            elif command == "remove":
+                await self.remove_instrument(instrument_id)
+        except RuntimeError as exc:
+            await engine.events.put(
+                LogEvent(engine.settings.symbol, datetime.now(UTC), "error", f"Ошибка команды: {exc}")
+            )
+            return str(exc)
+        return None
+
+    async def remove_instrument(self, instrument_id: str) -> None:
+        """Remove card, stop tasks and clean resources."""
+
         engine = self.engines.pop(instrument_id, None)
         widget = self.widgets.pop(instrument_id, None)
         task = self.event_tasks.pop(instrument_id, None)
+
         if task:
             task.cancel()
             with suppress(asyncio.CancelledError):
                 await task
+
         if engine:
-            try:
+            with suppress(RuntimeError):
                 await engine.stop()
-            except RuntimeError:
-                pass
-        if widget:
-            await widget.remove()
+
+        if widget and widget.control in self.instrument_column.controls:
+            self.instrument_column.controls.remove(widget.control)
+            await self.page.update_async()
 
     async def _run_for_all(self, command: str) -> None:
-        tasks = []
-        for iid in list(self.engines.keys()):
-            if command in {"start", "stop", "close", "update", "remove"}:
-                payload = InstrumentCommand(iid, command)  # type: ignore[arg-type]
-                tasks.append(self._run_command(payload))
+        tasks = [self.run_command(iid, command) for iid in list(self.engines.keys())]
         if tasks:
             await asyncio.gather(*tasks, return_exceptions=True)
 
@@ -187,6 +208,10 @@ class HedgeBotApp(App):
         )
 
 
+async def _main(page: ft.Page) -> None:
+    app = HedgeBotFletApp(page)
+    await app.initialize()
+
+
 def run_app() -> None:
-    app = HedgeBotApp()
-    app.run()
+    ft.app(target=_main)
