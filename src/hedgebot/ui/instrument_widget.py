@@ -1,5 +1,5 @@
 # src/hedgebot/ui/instrument_widget.py
-"""Instrument card implementation for the Flet UI."""
+"""Instrument card implementation for the Flet UI (Flet v1 / 0.70+)."""
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, List
@@ -58,10 +58,10 @@ class InstrumentCard:
 
         self.status_label = ft.Text("Статус: CONFIGURED", weight=ft.FontWeight.BOLD)
         self.status_details = ft.Text("")
-        self.start_button = ft.ElevatedButton("Старт", icon=ft.Icons.PLAY_ARROW, on_click=self._on_start)
-        self.stop_button = ft.OutlinedButton("Стоп", icon=ft.Icons.STOP_CIRCLE, on_click=self._on_stop)
-        self.close_button = ft.TextButton("Закрыть всё", icon=ft.Icons.CLOSE, on_click=self._on_close)
-        self.remove_button = ft.TextButton("Удалить", icon=ft.Icons.DELETE, on_click=self._on_remove)
+        self.start_button = ft.ElevatedButton(content=ft.Text("Старт"), icon=ft.Icons.PLAY_ARROW, on_click=self._on_start)
+        self.stop_button = ft.OutlinedButton(content=ft.Text("Стоп"), icon=ft.Icons.STOP_CIRCLE, on_click=self._on_stop)
+        self.close_button = ft.TextButton(content=ft.Text("Закрыть всё"), icon=ft.Icons.CLOSE, on_click=self._on_close)
+        self.remove_button = ft.TextButton(content=ft.Text("Удалить"), icon=ft.Icons.DELETE, on_click=self._on_remove)
 
         self.orders_table = ft.DataTable(
             columns=[
@@ -80,7 +80,7 @@ class InstrumentCard:
         )
         self.log_list = ft.ListView(expand=1, spacing=4, auto_scroll=True, height=220)
 
-        self.save_button = ft.FilledButton("Сохранить", icon=ft.Icons.SAVE, on_click=self._on_save)
+        self.save_button = ft.FilledButton(content=ft.Text("Сохранить"), icon=ft.Icons.SAVE, on_click=self._on_save)
 
         settings_tab = ft.Container(
             content=ft.Column(
@@ -90,11 +90,11 @@ class InstrumentCard:
                     self.trigger_price_input,
                     self.trigger_direction_select,
                     self.trigger_by_select,
-                    ft.Row([self.tp1_offset_input, self.tp1_qty_input]),
-                    ft.Row([self.tp2_offset_input, self.tp2_qty_input]),
+                    ft.Row(controls=[self.tp1_offset_input, self.tp1_qty_input]),
+                    ft.Row(controls=[self.tp2_offset_input, self.tp2_qty_input]),
                     self.stop_pairs_input,
                     self.refill_checkbox,
-                    ft.Row([self.refill_price_input, self.refill_qty_input]),
+                    ft.Row(controls=[self.refill_price_input, self.refill_qty_input]),
                     self.settings_message,
                     self.save_button,
                 ],
@@ -124,29 +124,30 @@ class InstrumentCard:
             ),
         )
 
-        orders_tab = ft.Container(content=ft.Column([self.orders_table], tight=True))
-        log_tab = ft.Container(content=ft.Column([self.log_list], tight=True))
+        orders_tab = ft.Container(content=ft.Column(controls=[self.orders_table], tight=True))
+        log_tab = ft.Container(content=ft.Column(controls=[self.log_list], tight=True))
+
+        #
+        # Flet v1 Tabs API (TabBar + TabBarView)
+        #
+        tab_labels = [
+            ft.Tab(label=ft.Text("Настройки")),
+            ft.Tab(label=ft.Text("Статус")),
+            ft.Tab(label=ft.Text("Ордеры")),
+            ft.Tab(label=ft.Text("Лог")),
+        ]
+        tab_contents = [settings_tab, status_tab, orders_tab, log_tab]
 
         self.tabs = ft.Tabs(
-            animation_duration=300,
-            tabs=[
-                ft.Tab(
-                    text="Настройки",
-                    content=settings_tab
-                ),
-                ft.Tab(
-                    text="Статус",
-                    content=status_tab
-                ),
-                ft.Tab(
-                    text="Ордеры",
-                    content=orders_tab
-                ),
-                ft.Tab(
-                    text="Лог",
-                    content=log_tab
-                ),
-            ],
+            length=len(tab_labels),
+            animation_duration=ft.Duration(milliseconds=300),
+            content=ft.Column(
+                expand=True,
+                controls=[
+                    ft.TabBar(tabs=tab_labels),
+                    ft.TabBarView(expand=True, controls=tab_contents),
+                ],
+            ),
         )
 
         self.control = ft.Card(
