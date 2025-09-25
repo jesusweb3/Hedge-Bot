@@ -1,101 +1,116 @@
-# src/hedgebot/ui/add_instrument.py
-"""
-Модальное окно для добавления нового торгового инструмента.
-Содержит форму с настройками символа, объёмов, тейк-профитов, стоп-лоссов и доливок.
-Валидирует входные данные и отправляет сообщение с настройками в главное приложение.
-"""
-
+"""Modal dialog for creating a new instrument in Flet UI."""
 from __future__ import annotations
 
-from typing import List
+from typing import Awaitable, Callable, List
 
-from textual.app import ComposeResult
-from textual.containers import Grid, Horizontal, Vertical
-from textual.screen import ModalScreen
-from textual.widgets import Button, Checkbox, Input, Select, Static
+import flet as ft
 
 from ..config import InstrumentSettings, RefillConfig, StopLossLevel, TakeProfitLevel
-from .messages import AddInstrumentMessage
 
 
-class AddInstrumentScreen(ModalScreen[None]):
-    """Диалог добавления нового инструмента."""
+class AddInstrumentDialog:
+    """Wraps an AlertDialog with form fields for instrument creation."""
 
-    def __init__(self, defaults: InstrumentSettings) -> None:
-        super().__init__()
+    def __init__(
+        self,
+        page: ft.Page,
+        defaults: InstrumentSettings,
+        on_submit: Callable[[InstrumentSettings], Awaitable[None]],
+    ) -> None:
+        self.page = page
         self.defaults = defaults.clone()
-        self.message_label = Static("", classes="settings-message")
+        self.on_submit = on_submit
 
-        self.symbol_input = Input(value=self.defaults.symbol, placeholder="BTCUSDT")
-        self.quantity_input = Input(value=str(self.defaults.base_quantity), placeholder="Базовый объём")
-        self.trigger_price_input = Input(value=str(self.defaults.entry_trigger_price), placeholder="Цена триггера")
-        self.trigger_direction_select = Select(
-            options=[("Price >=", "1"), ("Price <=", "2")],
+        self.symbol_input = ft.TextField(label="Символ", value=self.defaults.symbol.upper())
+        self.quantity_input = ft.TextField(label="Базовый объём", value=str(self.defaults.base_quantity))
+        self.trigger_price_input = ft.TextField(label="Цена входа", value=str(self.defaults.entry_trigger_price))
+        self.trigger_direction_select = ft.Dropdown(
+            label="Направление триггера",
             value=str(self.defaults.entry_trigger_direction),
+            options=[
+                ft.dropdown.Option(key="1", text="Price >="),
+                ft.dropdown.Option(key="2", text="Price <="),
+            ],
         )
-        self.trigger_by_select = Select(
-            options=[("Last", "LastPrice"), ("Mark", "MarkPrice"), ("Index", "IndexPrice")],
+        self.trigger_by_select = ft.Dropdown(
+            label="Триггер по",
             value=self.defaults.trigger_by,
+            options=[
+                ft.dropdown.Option("LastPrice", "Last"),
+                ft.dropdown.Option("MarkPrice", "Mark"),
+                ft.dropdown.Option("IndexPrice", "Index"),
+            ],
         )
-        self.tp1_offset_input = Input(value=str(self.defaults.take_profits[0].offset_percent))
-        self.tp1_qty_input = Input(value=str(self.defaults.take_profits[0].quantity_percent))
-        self.tp2_offset_input = Input(value=str(self.defaults.take_profits[1].offset_percent))
-        self.tp2_qty_input = Input(value=str(self.defaults.take_profits[1].quantity_percent))
+        self.tp1_offset_input = ft.TextField(label="TP1 %", value=str(self.defaults.take_profits[0].offset_percent))
+        self.tp1_qty_input = ft.TextField(label="TP1 объём %", value=str(self.defaults.take_profits[0].quantity_percent))
+        self.tp2_offset_input = ft.TextField(label="TP2 %", value=str(self.defaults.take_profits[1].offset_percent))
+        self.tp2_qty_input = ft.TextField(label="TP2 объём %", value=str(self.defaults.take_profits[1].quantity_percent))
         stops_default = ",".join(f"{sl.offset_percent}:{sl.quantity_percent}" for sl in self.defaults.stop_losses)
-        self.stop_pairs_input = Input(value=stops_default, placeholder="0.5:30,1.0:30")
-        self.refill_checkbox = Checkbox(label="Доливка после TP1", value=self.defaults.refill.enabled_after_tp1)
-        self.refill_price_input = Input(value=str(self.defaults.refill.price_offset_percent))
-        self.refill_qty_input = Input(value=str(self.defaults.refill.quantity_percent))
+        self.stop_pairs_input = ft.TextField(label="Стопы offset:qty", value=stops_default)
+        self.refill_checkbox = ft.Checkbox(label="Доливка после TP1", value=self.defaults.refill.enabled_after_tp1)
+        self.refill_price_input = ft.TextField(label="Цена доливки %", value=str(self.defaults.refill.price_offset_percent))
+        self.refill_qty_input = ft.TextField(label="Объём доливки %", value=str(self.defaults.refill.quantity_percent))
+        self.message = ft.Text(value="", color=ft.colors.RED)
 
-    def compose(self) -> ComposeResult:
-        with Vertical(classes="modal-body"):
-            yield Static("Добавление инструмента", classes="modal-title")
-            with Grid(classes="settings-grid"):
-                yield Static("Символ")
-                yield self.symbol_input
-                yield Static("Базовый объём")
-                yield self.quantity_input
-                yield Static("Цена входа")
-                yield self.trigger_price_input
-                yield Static("Направление триггера")
-                yield self.trigger_direction_select
-                yield Static("Триггер по")
-                yield self.trigger_by_select
-                yield Static("TP1 %")
-                yield self.tp1_offset_input
-                yield Static("TP1 объём %")
-                yield self.tp1_qty_input
-                yield Static("TP2 %")
-                yield self.tp2_offset_input
-                yield Static("TP2 объём %")
-                yield self.tp2_qty_input
-                yield Static("Стопы offset:qty")
-                yield self.stop_pairs_input
-                yield self.refill_checkbox
-                with Horizontal():
-                    yield Static("Цена доливки %")
-                    yield self.refill_price_input
-                    yield Static("Объём %")
-                    yield self.refill_qty_input
-            yield self.message_label
-            with Horizontal():
-                yield Button("Создать", id="create", variant="success")
-                yield Button("Отмена", id="cancel", variant="warning")
+        content = ft.Column(
+            controls=[
+                self.symbol_input,
+                self.quantity_input,
+                self.trigger_price_input,
+                self.trigger_direction_select,
+                self.trigger_by_select,
+                ft.Row([self.tp1_offset_input, self.tp1_qty_input]),
+                ft.Row([self.tp2_offset_input, self.tp2_qty_input]),
+                self.stop_pairs_input,
+                self.refill_checkbox,
+                ft.Row([self.refill_price_input, self.refill_qty_input]),
+                self.message,
+            ],
+            tight=True,
+            spacing=10,
+        )
 
-    def on_button_pressed(self, event: Button.Pressed) -> None:
-        if event.button.id == "cancel":
-            self.dismiss(None)
+        self.dialog = ft.AlertDialog(
+            modal=True,
+            title=ft.Text("Добавление инструмента"),
+            content=ft.Container(content=content, width=420),
+            actions=[
+                ft.TextButton("Отмена", on_click=self._on_cancel),
+                ft.FilledButton("Создать", icon=ft.icons.ADD, on_click=self._on_submit),
+            ],
+            actions_alignment=ft.MainAxisAlignment.END,
+        )
+
+    async def open(self) -> None:
+        self.page.dialog = self.dialog
+        self.dialog.open = True
+        await self.page.update_async()
+
+    async def _on_cancel(self, _event: ft.ControlEvent) -> None:
+        self.dialog.open = False
+        self.page.dialog = None
+        await self.page.update_async()
+
+    async def _on_submit(self, _event: ft.ControlEvent) -> None:
+        try:
+            settings = self._collect_settings()
+        except Exception as exc:  # pylint: disable=broad-except
+            self.message.value = f"Ошибка: {exc}"
+            self.message.color = ft.colors.RED
+            await self.page.update_async()
             return
-        if event.button.id == "create":
-            try:
-                settings = self._collect_settings()
-                self.post_message(AddInstrumentMessage(settings))
-                self.message_label.set_classes("settings-message success")
-                self.message_label.update("Инструмент создан")
-                self.dismiss(None)
-            except Exception as exc:  # pylint: disable=broad-except
-                self.message_label.set_classes("settings-message error")
-                self.message_label.update(f"Ошибка: {exc}")
+
+        try:
+            await self.on_submit(settings)
+        except Exception as exc:  # pylint: disable=broad-except
+            self.message.value = f"Ошибка создания: {exc}"
+            self.message.color = ft.colors.RED
+            await self.page.update_async()
+            return
+
+        self.dialog.open = False
+        self.page.dialog = None
+        await self.page.update_async()
 
     def _collect_settings(self) -> InstrumentSettings:
         symbol = self.symbol_input.value.strip().upper()
@@ -103,8 +118,14 @@ class AddInstrumentScreen(ModalScreen[None]):
         trigger_price = float(self.trigger_price_input.value)
         trigger_direction = int(self.trigger_direction_select.value or 2)
         trigger_by = self.trigger_by_select.value or "LastPrice"
-        tp1 = TakeProfitLevel(offset_percent=float(self.tp1_offset_input.value), quantity_percent=float(self.tp1_qty_input.value))
-        tp2 = TakeProfitLevel(offset_percent=float(self.tp2_offset_input.value), quantity_percent=float(self.tp2_qty_input.value))
+        tp1 = TakeProfitLevel(
+            offset_percent=float(self.tp1_offset_input.value),
+            quantity_percent=float(self.tp1_qty_input.value),
+        )
+        tp2 = TakeProfitLevel(
+            offset_percent=float(self.tp2_offset_input.value),
+            quantity_percent=float(self.tp2_qty_input.value),
+        )
         stops = self._parse_stop_levels(self.stop_pairs_input.value)
         refill = RefillConfig(
             enabled_after_tp1=self.refill_checkbox.value,
