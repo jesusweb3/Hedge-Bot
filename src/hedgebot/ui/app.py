@@ -44,9 +44,9 @@ class HedgeBotFletApp:
         self.page.horizontal_alignment = ft.CrossAxisAlignment.STRETCH
         self.page.vertical_alignment = ft.MainAxisAlignment.START
 
-        add_button = ft.FilledButton("Добавить инструмент", icon=ft.icons.ADD, on_click=self._on_add_clicked)
-        start_all = ft.ElevatedButton("Запустить все", icon=ft.icons.PLAY_ARROW, on_click=self._on_start_all)
-        stop_all = ft.OutlinedButton("Остановить все", icon=ft.icons.STOP_CIRCLE, on_click=self._on_stop_all)
+        add_button = ft.FilledButton("Добавить инструмент", icon=ft.Icons.ADD, on_click=self._on_add_clicked)
+        start_all = ft.ElevatedButton("Запустить все", icon=ft.Icons.PLAY_ARROW, on_click=self._on_start_all)
+        stop_all = ft.OutlinedButton("Остановить все", icon=ft.Icons.STOP_CIRCLE, on_click=self._on_stop_all)
 
         layout = ft.Column(
             controls=[
@@ -74,9 +74,9 @@ class HedgeBotFletApp:
 
         self.page.on_close = self._on_page_close
         self.page.on_disconnect = self._on_page_close
-        await self.page.update_async()
+        self.page.update()
 
-    async def _on_page_close(self, _event: Optional[ft.ControlEvent]) -> None:
+    async def _on_page_close(self, _) -> None:
         await self.shutdown()
 
     async def shutdown(self) -> None:
@@ -88,18 +88,18 @@ class HedgeBotFletApp:
                 await task
         self.event_tasks.clear()
 
-    async def _on_add_clicked(self, _event: ft.ControlEvent) -> None:
+    async def _on_add_clicked(self, _) -> None:
         if not self.client:
             self.status_text.value = "API клиент недоступен. Проверьте настройки .env"
-            await self.page.update_async()
+            self.page.update()
             return
         dialog = AddInstrumentDialog(self.page, self._default_settings(), self.create_instrument)
-        await dialog.open()
+        dialog.open()
 
-    async def _on_start_all(self, _event: ft.ControlEvent) -> None:
+    async def _on_start_all(self, _) -> None:
         await self._run_for_all("start")
 
-    async def _on_stop_all(self, _event: ft.ControlEvent) -> None:
+    async def _on_stop_all(self, _) -> None:
         await self._run_for_all("stop")
 
     async def create_instrument(self, settings: InstrumentSettings) -> None:
@@ -107,7 +107,7 @@ class HedgeBotFletApp:
 
         if not self.client:
             self.status_text.value = "API клиент недоступен"
-            await self.page.update_async()
+            self.page.update()
             return
 
         instrument_id = f"{settings.symbol}-{self._instrument_counter}-{uuid.uuid4().hex[:4]}"
@@ -119,7 +119,7 @@ class HedgeBotFletApp:
         self.engines[instrument_id] = engine
         self.widgets[instrument_id] = widget
         self.instrument_column.controls.append(widget.control)
-        await self.page.update_async()
+        self.page.update()
 
         task = asyncio.create_task(self._consume_events(instrument_id, engine))
         self.event_tasks[instrument_id] = task
@@ -182,7 +182,7 @@ class HedgeBotFletApp:
 
         if widget and widget.control in self.instrument_column.controls:
             self.instrument_column.controls.remove(widget.control)
-            await self.page.update_async()
+            self.page.update()
 
     async def _run_for_all(self, command: str) -> None:
         tasks = [self.run_command(iid, command) for iid in list(self.engines.keys())]

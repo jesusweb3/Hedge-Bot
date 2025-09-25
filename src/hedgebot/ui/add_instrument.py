@@ -1,3 +1,4 @@
+# src/hedgebot/ui/add_instrument.py
 """Modal dialog for creating a new instrument in Flet UI."""
 from __future__ import annotations
 
@@ -50,7 +51,7 @@ class AddInstrumentDialog:
         self.refill_checkbox = ft.Checkbox(label="Доливка после TP1", value=self.defaults.refill.enabled_after_tp1)
         self.refill_price_input = ft.TextField(label="Цена доливки %", value=str(self.defaults.refill.price_offset_percent))
         self.refill_qty_input = ft.TextField(label="Объём доливки %", value=str(self.defaults.refill.quantity_percent))
-        self.message = ft.Text(value="", color=ft.colors.RED)
+        self.message = ft.Text(value="", color=ft.Colors.RED)
 
         content = ft.Column(
             controls=[
@@ -76,43 +77,47 @@ class AddInstrumentDialog:
             content=ft.Container(content=content, width=420),
             actions=[
                 ft.TextButton("Отмена", on_click=self._on_cancel),
-                ft.FilledButton("Создать", icon=ft.icons.ADD, on_click=self._on_submit),
+                ft.FilledButton("Создать", icon=ft.Icons.ADD, on_click=self._on_submit),
             ],
             actions_alignment=ft.MainAxisAlignment.END,
         )
 
-    async def open(self) -> None:
+    def open(self) -> None:
+        """Opens the dialog."""
         self.page.dialog = self.dialog
         self.dialog.open = True
-        await self.page.update_async()
+        self.page.update()
 
-    async def _on_cancel(self, _event: ft.ControlEvent) -> None:
+    def _on_cancel(self, _) -> None:
+        """Handles cancel button click."""
         self.dialog.open = False
         self.page.dialog = None
-        await self.page.update_async()
+        self.page.update()
 
-    async def _on_submit(self, _event: ft.ControlEvent) -> None:
+    async def _on_submit(self, _) -> None:
+        """Handles submit button click."""
         try:
             settings = self._collect_settings()
         except Exception as exc:  # pylint: disable=broad-except
             self.message.value = f"Ошибка: {exc}"
-            self.message.color = ft.colors.RED
-            await self.page.update_async()
+            self.message.color = ft.Colors.RED
+            self.page.update()
             return
 
         try:
             await self.on_submit(settings)
         except Exception as exc:  # pylint: disable=broad-except
             self.message.value = f"Ошибка создания: {exc}"
-            self.message.color = ft.colors.RED
-            await self.page.update_async()
+            self.message.color = ft.Colors.RED
+            self.page.update()
             return
 
         self.dialog.open = False
         self.page.dialog = None
-        await self.page.update_async()
+        self.page.update()
 
     def _collect_settings(self) -> InstrumentSettings:
+        """Collects settings from form fields."""
         symbol = self.symbol_input.value.strip().upper()
         base_qty = float(self.quantity_input.value)
         trigger_price = float(self.trigger_price_input.value)
@@ -147,6 +152,7 @@ class AddInstrumentDialog:
 
     @staticmethod
     def _parse_stop_levels(value: str) -> List[StopLossLevel]:
+        """Parses stop loss levels from string format."""
         parts = [p.strip() for p in (value or "").split(",") if p.strip()]
         if not parts:
             raise ValueError("Необходимо указать хотя бы один стоп-лосс")

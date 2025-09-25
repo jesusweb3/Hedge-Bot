@@ -54,33 +54,33 @@ class InstrumentCard:
         self.refill_checkbox = ft.Checkbox(label="Доливка после TP1", value=self.settings.refill.enabled_after_tp1)
         self.refill_price_input = ft.TextField(label="Цена доливки %", value=str(self.settings.refill.price_offset_percent))
         self.refill_qty_input = ft.TextField(label="Объём доливки %", value=str(self.settings.refill.quantity_percent))
-        self.settings_message = ft.Text(value="", color=ft.colors.GREEN)
+        self.settings_message = ft.Text(value="", color=ft.Colors.GREEN)
 
         self.status_label = ft.Text("Статус: CONFIGURED", weight=ft.FontWeight.BOLD)
         self.status_details = ft.Text("")
-        self.start_button = ft.ElevatedButton("Старт", icon=ft.icons.PLAY_ARROW, on_click=self._on_start)
-        self.stop_button = ft.OutlinedButton("Стоп", icon=ft.icons.STOP_CIRCLE, on_click=self._on_stop)
-        self.close_button = ft.TextButton("Закрыть всё", icon=ft.icons.CLOSE, on_click=self._on_close)
-        self.remove_button = ft.TextButton("Удалить", icon=ft.icons.DELETE, on_click=self._on_remove)
+        self.start_button = ft.ElevatedButton("Старт", icon=ft.Icons.PLAY_ARROW, on_click=self._on_start)
+        self.stop_button = ft.OutlinedButton("Стоп", icon=ft.Icons.STOP_CIRCLE, on_click=self._on_stop)
+        self.close_button = ft.TextButton("Закрыть всё", icon=ft.Icons.CLOSE, on_click=self._on_close)
+        self.remove_button = ft.TextButton("Удалить", icon=ft.Icons.DELETE, on_click=self._on_remove)
 
         self.orders_table = ft.DataTable(
             columns=[
-                ft.DataColumn(ft.Text("ID")),
-                ft.DataColumn(ft.Text("Тип")),
-                ft.DataColumn(ft.Text("Сторона")),
-                ft.DataColumn(ft.Text("Позиция")),
-                ft.DataColumn(ft.Text("Кол-во")),
-                ft.DataColumn(ft.Text("Цена")),
-                ft.DataColumn(ft.Text("Триггер")),
-                ft.DataColumn(ft.Text("RO")),
-                ft.DataColumn(ft.Text("Статус")),
-                ft.DataColumn(ft.Text("Обновлено")),
+                ft.DataColumn(label=ft.Text("ID")),
+                ft.DataColumn(label=ft.Text("Тип")),
+                ft.DataColumn(label=ft.Text("Сторона")),
+                ft.DataColumn(label=ft.Text("Позиция")),
+                ft.DataColumn(label=ft.Text("Кол-во")),
+                ft.DataColumn(label=ft.Text("Цена")),
+                ft.DataColumn(label=ft.Text("Триггер")),
+                ft.DataColumn(label=ft.Text("RO")),
+                ft.DataColumn(label=ft.Text("Статус")),
+                ft.DataColumn(label=ft.Text("Обновлено")),
             ],
             rows=[],
         )
         self.log_list = ft.ListView(expand=1, spacing=4, auto_scroll=True, height=220)
 
-        self.save_button = ft.FilledButton("Сохранить", icon=ft.icons.SAVE, on_click=self._on_save)
+        self.save_button = ft.FilledButton("Сохранить", icon=ft.Icons.SAVE, on_click=self._on_save)
 
         settings_tab = ft.Container(
             content=ft.Column(
@@ -130,10 +130,22 @@ class InstrumentCard:
         self.tabs = ft.Tabs(
             animation_duration=300,
             tabs=[
-                ft.Tab(text="Настройки", content=settings_tab),
-                ft.Tab(text="Статус", content=status_tab),
-                ft.Tab(text="Ордеры", content=orders_tab),
-                ft.Tab(text="Лог", content=log_tab),
+                ft.Tab(
+                    text="Настройки",
+                    content=settings_tab
+                ),
+                ft.Tab(
+                    text="Статус",
+                    content=status_tab
+                ),
+                ft.Tab(
+                    text="Ордеры",
+                    content=orders_tab
+                ),
+                ft.Tab(
+                    text="Лог",
+                    content=log_tab
+                ),
             ],
         )
 
@@ -156,39 +168,39 @@ class InstrumentCard:
             self._handle_log_event(event)
         elif isinstance(event, OrdersEvent):
             self._handle_orders_event(event)
-        await self.app.page.update_async()
+        self.app.page.update()
 
-    async def _on_start(self, _event: ft.ControlEvent) -> None:
+    async def _on_start(self, _) -> None:
         await self.app.run_command(self.instrument_id, "start")
 
-    async def _on_stop(self, _event: ft.ControlEvent) -> None:
+    async def _on_stop(self, _) -> None:
         await self.app.run_command(self.instrument_id, "stop")
 
-    async def _on_close(self, _event: ft.ControlEvent) -> None:
+    async def _on_close(self, _) -> None:
         await self.app.run_command(self.instrument_id, "close")
 
-    async def _on_remove(self, _event: ft.ControlEvent) -> None:
+    async def _on_remove(self, _) -> None:
         await self.app.run_command(self.instrument_id, "remove")
 
-    async def _on_save(self, _event: ft.ControlEvent) -> None:
+    async def _on_save(self, _) -> None:
         try:
             settings = self._collect_settings_from_form()
         except Exception as exc:  # pylint: disable=broad-except
             self.settings_message.value = f"Ошибка: {exc}"
-            self.settings_message.color = ft.colors.RED
-            await self.app.page.update_async()
+            self.settings_message.color = ft.Colors.RED
+            self.app.page.update()
             return
 
         error = await self.app.run_command(self.instrument_id, "update", settings)
         if error:
             self.settings_message.value = f"Ошибка: {error}"
-            self.settings_message.color = ft.colors.RED
+            self.settings_message.color = ft.Colors.RED
         else:
             self.settings = settings.clone()
             self.title.value = f"Инструмент {self.settings.symbol}"
             self.settings_message.value = "Настройки сохранены"
-            self.settings_message.color = ft.colors.GREEN
-        await self.app.page.update_async()
+            self.settings_message.color = ft.Colors.GREEN
+        self.app.page.update()
 
     def _collect_settings_from_form(self) -> InstrumentSettings:
         symbol = self.symbol_input.value.strip().upper()
@@ -231,12 +243,12 @@ class InstrumentCard:
     def _handle_log_event(self, event: LogEvent) -> None:
         timestamp = event.timestamp.strftime("%H:%M:%S")
         color_map = {
-            "info": ft.colors.GREEN,
-            "warning": ft.colors.AMBER,
-            "error": ft.colors.RED,
-            "debug": ft.colors.BLUE_GREY,
+            "info": ft.Colors.GREEN,
+            "warning": ft.Colors.AMBER,
+            "error": ft.Colors.RED,
+            "debug": ft.Colors.BLUE_GREY,
         }
-        color = color_map.get(event.level, ft.colors.WHITE)
+        color = color_map.get(event.level, ft.Colors.WHITE)
         self.log_list.controls.append(ft.Text(f"[{timestamp}] {event.message}", color=color))
         while len(self.log_list.controls) > 500:
             self.log_list.controls.pop(0)
@@ -244,7 +256,7 @@ class InstrumentCard:
     def _handle_orders_event(self, event: OrdersEvent) -> None:
         rows = [
             ft.DataRow(
-                cells=[ft.DataCell(ft.Text(value)) for value in self._order_to_row(order)]
+                cells=[ft.DataCell(content=ft.Text(value)) for value in self._order_to_row(order)]
             )
             for order in event.orders
         ]
